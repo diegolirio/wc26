@@ -1,0 +1,12 @@
+.git
+.idea
+.DS_Store
+**/node_modules
+**/.next
+**/build
+**/dist
+**/coverage
+**/.expo
+**/.turbo
+**/.pnpm-store
+**/out

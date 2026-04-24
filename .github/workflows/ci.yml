@@ -1,0 +1,163 @@
+name: ci
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+env:
+  PROJECT_NAME: wc26
+  DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME || github.repository_owner }}
+
+jobs:
+  discover-apps:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.discover.outputs.matrix }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - id: discover
+        name: Discover backend apps
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          matrix_json="$(
+            find . -name '*Application.kt' -path '*/src/main/kotlin/*' -print |
+              while read -r app_file; do
+                [ -n "$app_file" ] || continue
+
+                app_dir="${app_file%/src/main/kotlin/*}"
+                app_dir="${app_dir#./}"
+                module_name="${app_dir##*/}"
+                app_type="${module_name##*-}"
+                domain="${module_name%-${app_type}}"
+                module_path=":${app_dir//\//:}"
+                web_dir="$(dirname "$app_dir")/${domain}-web"
+                has_web=false
+
+                if [ "$app_type" = "api" ] && [ -d "$web_dir" ]; then
+                  has_web=true
+                fi
+
+                jq -n \
+                  --arg appDir "$app_dir" \
+                  --arg domain "$domain" \
+                  --arg appType "$app_type" \
+                  --arg modulePath "$module_path" \
+                  --arg webDir "$web_dir" \
+                  --argjson hasWeb "$has_web" \
+                  '{appDir:$appDir, domain:$domain, appType:$appType, modulePath:$modulePath, webDir:$webDir, hasWeb:$hasWeb}'
+              done |
+              jq -cs '{include: .}'
+          )"
+
+          echo "matrix=$matrix_json" >> "$GITHUB_OUTPUT"
+
+  test-backend:
+    runs-on: ubuntu-latest
+    needs: discover-apps
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "25"
+          cache: gradle
+
+      - name: Run backend tests
+        run: ./gradlew test
+
+  build-and-push-app:
+    runs-on: ubuntu-latest
+    needs: discover-apps
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.discover-apps.outputs.matrix) }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "25"
+          cache: gradle
+
+      - name: Setup pnpm
+        if: ${{ matrix.appType == 'api' && matrix.hasWeb }}
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.9.0
+
+      - name: Setup Node
+        if: ${{ matrix.appType == 'api' && matrix.hasWeb }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+          cache-dependency-path: wc26/pnpm-lock.yaml
+
+      - name: Build frontend for API apps
+        if: ${{ matrix.appType == 'api' && matrix.hasWeb }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm --dir wc26 install --frozen-lockfile
+          pnpm --dir "${{ matrix.webDir }}" run build
+          mkdir -p "${{ matrix.appDir }}/src/main/resources/static"
+          cp -r "${{ matrix.webDir }}/out/." "${{ matrix.appDir }}/src/main/resources/static/" 2>/dev/null || true
+          cp -r "${{ matrix.webDir }}/public/." "${{ matrix.appDir }}/src/main/resources/static/" 2>/dev/null || true
+
+      - name: Build backend module
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew "${{ matrix.modulePath }}:clean" "${{ matrix.modulePath }}:build" -x test
+
+      - name: Docker smoke build
+        shell: bash
+        run: |
+          set -euo pipefail
+          image="${DOCKER_USERNAME}/${PROJECT_NAME}-${{ matrix.domain }}-${{ matrix.appType }}:latest"
+          docker build -t "$image" -f "${{ matrix.appDir }}/Dockerfile" .
+
+      - name: Docker login
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Docker push
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          image="${DOCKER_USERNAME}/${PROJECT_NAME}-${{ matrix.domain }}-${{ matrix.appType }}:latest"
+          docker push "$image"
+
+  deploy-app:
+    runs-on: ubuntu-latest
+    needs:
+      - build-and-push-app
+      - test-backend
+      - discover-apps
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.discover-apps.outputs.matrix) }}
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    steps:
+      - name: Deploy app
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Deploying ${{ matrix.domain }}-${{ matrix.appType }} using your deployment target of choice."
