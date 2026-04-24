@@ -1,0 +1,8 @@
+{
+  "expo": {
+    "name": "wc26 mobile",
+    "slug": "wc26-mobile",
+    "scheme": "wc26-mobile",
+    "plugins": ["expo-router"]
+  }
+}

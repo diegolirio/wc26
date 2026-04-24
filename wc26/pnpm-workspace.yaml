@@ -1,0 +1,4 @@
+packages:
+  - "wc26-web"
+  - "wc26-mobile"
+  - "wc26-ui"

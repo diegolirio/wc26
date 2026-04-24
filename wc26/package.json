@@ -1,0 +1,12 @@
+{
+  "name": "@wc26/wc26",
+  "private": true,
+  "version": "0.0.1",
+  "packageManager": "pnpm@10.9.0",
+  "scripts": {
+    "web": "pnpm --dir wc26-web dev",
+    "mobile": "pnpm --dir wc26-mobile start",
+    "build:web": "pnpm --dir wc26-web build",
+    "build:mobile": "pnpm --dir wc26-mobile export"
+  }
+}
