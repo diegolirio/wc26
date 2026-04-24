@@ -11,9 +11,11 @@ build/
 *.jar
 node_modules/
 .next/
+**-web/out/
 dist/
 coverage/
 .expo/
 .turbo/
 .pnpm-store/
+**/src/main/resources/static/
 !gradle/wrapper/gradle-wrapper.jar
