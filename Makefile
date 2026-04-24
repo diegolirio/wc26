@@ -1,4 +1,4 @@
-.PHONY: build-front-back-wc26-api build-back-wc26-api build-back-wc26-async test-backend discover-apps-local ci-local run-front-back
+.PHONY: build-front-back-wc26-api build-back-wc26-api build-back-wc26-async test-backend discover-apps-local ci-local run-front-back build-front run-front clean-front
 
 build-front-back-wc26-api:
 	cd wc26 && pnpm install
@@ -21,5 +21,15 @@ discover-apps-local:
 
 ci-local: test-backend build-back-wc26-api build-back-wc26-async
 
+build-front:
+	cd wc26 && pnpm install
+
+run-front:
+	cd wc26 && pnpm install && pnpm run web
+
+clean-front:
+	rm -rf wc26/wc26-web/.next wc26/wc26-web/out
+
 run-front-back: build-front-back-wc26-api
 	./gradlew :wc26:wc26-api:bootRun
+
